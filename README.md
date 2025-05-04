@@ -1,4 +1,4 @@
-# Hetzner K3s Cluster - Easy Deployment with OpenTofu
+# Hetzner K3s Cluster - Easy Deployment with OpenTofu and Ansible
 
 A project that makes setting up lightweight Kubernetes clusters on Hetzner Cloud a breeze. Deploy, scale, and manage your K3s cluster with simple commands!
 
