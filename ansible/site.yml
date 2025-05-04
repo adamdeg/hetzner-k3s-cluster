@@ -1,0 +1,23 @@
+---
+- name: Configure all nodes
+  hosts: k3s_cluster
+  become: true
+  roles:
+    - common
+
+- name: Configure K3s master
+  hosts: master
+  become: true
+  roles:
+    - k3s_master
+
+- name: Configure K3s worker
+  hosts: worker
+  become: true
+  gather_facts: true
+  roles:
+    - k3s_worker
+  vars:
+    k3s_master_ip: "{{ hostvars[groups['master'][0]]['ansible_default_ipv4']['address'] }}"
+  tags:
+    - workers

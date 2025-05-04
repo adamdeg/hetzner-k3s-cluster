@@ -1,0 +1,43 @@
+---
+- name: Wait for master to be available
+  wait_for:
+    host: "{{ hostvars[groups['master'][0]]['ansible_default_ipv4']['address'] }}"
+    port: 6443
+    timeout: 300
+  register: master_check
+  failed_when: false
+
+- name: Fetch K3s token from master
+  delegate_to: "{{ groups['master'][0] }}"
+  command: cat /var/lib/rancher/k3s/server/node-token
+  register: k3s_token_result
+  changed_when: false
+  when: master_check is success
+
+- name: Set fact for K3s token
+  set_fact:
+    k3s_token: "{{ k3s_token_result.stdout }}"
+  when: k3s_token_result is defined and k3s_token_result.stdout is defined
+
+- name: Display token (debug)
+  debug:
+    var: k3s_token
+    verbosity: 2
+
+- name: Download K3s install script
+  get_url:
+    url: https://get.k3s.io
+    dest: /tmp/k3s-install.sh
+    mode: '0755'
+
+- name: Install K3s worker
+  shell: |
+    K3S_URL=https://{{ hostvars[groups['master'][0]]['ansible_default_ipv4']['address'] }}:6443 \
+    K3S_TOKEN={{ k3s_token }} \
+    INSTALL_K3S_EXEC="agent \
+      --node-ip={{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }} \
+      --flannel-iface=eth0" \
+    sh /tmp/k3s-install.sh
+  args:
+    creates: /var/lib/rancher/k3s/agent/token
+  when: k3s_token is defined

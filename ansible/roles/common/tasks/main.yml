@@ -1,0 +1,96 @@
+---
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install required packages
+  apt:
+    name:
+      - curl
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - iptables
+    state: present
+
+- name: Check if python3-pip package exists
+  command: apt-cache search python3-pip
+  register: pip_exists
+  changed_when: false
+  ignore_errors: yes
+
+- name: Install python3-pip if available
+  apt:
+    name: python3-pip
+    state: present
+  when: pip_exists.rc == 0 and "python3-pip" in pip_exists.stdout
+  ignore_errors: yes
+
+- name: Install pip using get-pip script if package not available
+  block:
+    - name: Download get-pip.py
+      get_url:
+        url: https://bootstrap.pypa.io/get-pip.py
+        dest: /tmp/get-pip.py
+        mode: '0755'
+      when: pip_exists.rc != 0 or "python3-pip" not in pip_exists.stdout
+    
+    - name: Install pip using get-pip.py
+      command: python3 /tmp/get-pip.py
+      when: pip_exists.rc != 0 or "python3-pip" not in pip_exists.stdout
+      changed_when: true
+      ignore_errors: yes
+  ignore_errors: yes
+
+- name: Set hostname
+  hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Add hostname to /etc/hosts
+  lineinfile:
+    path: /etc/hosts
+    line: "127.0.1.1 {{ inventory_hostname }}"
+    state: present
+
+- name: Disable swap
+  command: swapoff -a
+  changed_when: false
+  
+- name: Remove swap from fstab
+  lineinfile:
+    path: /etc/fstab
+    regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+    state: absent
+
+- name: Ensure br_netfilter module is loaded
+  modprobe:
+    name: br_netfilter
+    state: present
+  ignore_errors: yes
+
+- name: Create br_netfilter config file
+  copy:
+    dest: /etc/modules-load.d/br_netfilter.conf
+    content: "br_netfilter"
+    mode: '0644'
+  register: br_netfilter_conf
+
+- name: Load br_netfilter module immediately
+  command: modprobe br_netfilter
+  when: br_netfilter_conf.changed
+  ignore_errors: yes
+
+- name: Set sysctl for Kubernetes networking
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_set: yes
+    reload: yes
+  with_items:
+    - { name: "net.ipv4.ip_forward", value: "1" }
+    - { name: "net.bridge.bridge-nf-call-iptables", value: "1" }
+    - { name: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
+  ignore_errors: yes

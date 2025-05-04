@@ -1,0 +1,52 @@
+---
+- name: Download K3s install script
+  get_url:
+    url: https://get.k3s.io
+    dest: /tmp/k3s-install.sh
+    mode: '0755'
+
+- name: Install K3s master
+  shell: |
+    INSTALL_K3S_EXEC="server \
+      --disable traefik \
+      --node-ip={{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }} \
+      --advertise-address={{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }} \
+      --flannel-iface=eth0" \
+    sh /tmp/k3s-install.sh
+  args:
+    creates: /var/lib/rancher/k3s/server/node-token
+
+- name: Get K3s token
+  command: cat /var/lib/rancher/k3s/server/node-token
+  register: k3s_token_result
+  changed_when: false
+  until: k3s_token_result.rc == 0
+  retries: 5
+  delay: 10
+
+- name: Store K3s token
+  set_fact:
+    k3s_token: "{{ k3s_token_result.stdout }}"
+  when: k3s_token_result is defined and k3s_token_result.stdout is defined
+
+- name: Wait for K3s to be ready
+  command: k3s kubectl get nodes
+  register: k3s_ready
+  until: k3s_ready.rc == 0
+  retries: 10
+  delay: 15
+  changed_when: false
+
+- name: Get kubeconfig from master
+  fetch:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: "{{ playbook_dir }}/k3s.yaml"
+    flat: yes
+
+- name: Update kubeconfig with master IP
+  delegate_to: localhost
+  become: no
+  replace:
+    path: "{{ playbook_dir }}/k3s.yaml"
+    regexp: 'https://127.0.0.1:6443'
+    replace: "https://{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:6443"
